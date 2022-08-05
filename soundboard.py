@@ -12,10 +12,10 @@ import colorama
 
 ##Terminal##
 colorama.init()
-print_error = lambda x:cprint(x, 'red')
+print_error = lambda x:cprint("ERROR: {0}".format(x), 'red')
+print_warning = lambda x:cprint("WARNING: {0}".format(x), 'yellow')
 
 ##Audio##
-CONFIG_FILE = 'KeyBind.config'
 inputi = -1
 outputi = -1
 p = pyaudio.PyAudio()
@@ -27,14 +27,28 @@ wavs = []
     
 
 ##KeyBind##
+UNBOUND = 'UNBOUND'
 keyboard_controller = Controller()
 keybind_enabled = True
-    
+
+##General Config##
+CONFIG_FILE = 'KeyBind.config'
+mic_key = UNBOUND
+voice_modifier = '000'
+texting_key = UNBOUND
+
 
 ###Fail Safe###
 def exit_on_failure():
     input("Press any key to exit....")
     sys.exit()
+def GC_completed():
+    if mic_key == UNBOUND:
+        print_error("mic_key is unbounded in General_Configuration!")
+        return False
+    if texting_key == UNBOUND:
+        print_warning("texting_key is unbounded in General_Configuration!")
+    return True
 
 ###Audio Steup###
 
@@ -55,10 +69,10 @@ def init_audio():
             inputi = i
         #print(p.get_default_output_device_info())
     if outputi == -1:
-        print_error("ERROR: Cannot find VB-Cable Output(Microphone)")
+        print_error("Cannot find VB-Cable Output(Microphone)")
         rtn = False
     if inputi == -1:
-        print_error("ERROR: Cannot find VB-Cable Input(Speaker)")
+        print_error("Cannot find VB-Cable Input(Speaker)")
         rtn = False
     if not rtn:
         color = 'yellow'
@@ -94,28 +108,78 @@ def parse_keybind(string):
     #print(rtn)
     return rtn[0]
 
+def parse_attribute(string):
+    return string.replace(" ", "")
+
 def parse_config(lines):
+    phase = 0 # 0=Undefined / 1=GC / 2=Combination
     current_line = 0
+    line_to_skip = 0
     rtn = {
         "count" : 0,
-        "combination" : []
+        "combination" : [],
+        "error_no" : 0
     }
     for line in lines:
-        if current_line < 3:
-            current_line += 1
-            continue
+        current_line += 1
         try:
-            var = line.split('|')
-            if len(var) == 4:
-                rtn["count"] += 1
-                rtn["combination"].append(
-                    {"name" : parse_dir_name(var[1]),
-                     "key" : parse_keybind(var[2])
-                    })
+            if line_to_skip > 0:
+                line_to_skip -= 1
+                continue      
+            varis = line.split("|")
+            if len(varis) == 3:
+                section = parse_attribute(varis[1])
+                match section:
+                    case "General_Configuration":
+                        line_to_skip = 3
+                        phase = 1
+                        continue
+                    case "Combination":
+                        line_to_skip = 3
+                        phase = 2
+                        continue
+                    case _:
+                        print_warning("Unknwon Section: {0}"
+                                      .format(section))
+                        continue
+            if len(line.split("=")) > 1: #End of Line indicated by "="
+                print(current_line)
+                phase = 0
+                continue
+            match phase:
+                case 1:
+                    #print(line)
+                    #print(len(varis))
+                    if len(varis) == 4:
+                        attribute = varis[1]
+                        value = varis[2]
+                        try:
+                            exec(attribute + "='{0}'"
+                                 .format(parse_attribute(value)), globals())
+                        except:
+                            print_error("Failed to read Attribute - {0}"
+                                        .format(attribute))
+                case 2:
+                    if len(varis) == 4:
+                        rtn["count"] += 1
+                        rtn["combination"].append(
+                            {"name" : parse_dir_name(varis[1]),
+                             "key" : parse_keybind(varis[2])}
+                        )
+                    else:
+                        print_error("Invalid line format ->{0}".format(line))
+                case _:
+                    continue
+                
         except:
             rtn["count"] = -1
             rtn["combination"] = []
+            rtn["error_no"] = 525
             break
+    if not GC_completed():
+        rtn["count"] = -1
+        rtn["combination"] = []
+        rtn["error_no"] = 502
     return rtn
 
 def get_audio_directories():
@@ -127,12 +191,17 @@ def get_audio_directories():
             for line in f:
                 lines.append(line)
     except:
-        print_error("ERROR: Cannot read config file")
+        print_error("Cannot read config file")
         return False
     configs = parse_config(lines)
-    if configs["count"] < 0:
-        print_error("ERROR: Your KeyBind.config might be corrupted.")
-        return False
+    print(configs)
+    match configs["error_no"]:
+        case 525:
+            print_error("Your KeyBind.config might be corrupted.")
+            return False
+        case 502:
+            print_error("One or more essential configuration missing.")
+            return False
     di = 0
     #print(list(configs["combination"][0].keys()))
     for d in p.iterdir():
@@ -159,7 +228,7 @@ def get_audio_directories():
 
 def play_audio(key):
     global keybind_enabled, folder_count, folders, wavs
-    voice_modifier = 0
+    voice_modifier = 200
     CHUNK = 0
     try:
         char = key.char
@@ -184,7 +253,7 @@ def play_audio(key):
                 break
 
     if CHUNK == 0:
-        print("ERROR: Failed to locate .wav file!")
+        print("Failed to locate .wav file!")
         return
     stream1 = p.open(format=p.get_format_from_width(wf1.getsampwidth()),
                     channels=wf1.getnchannels(),
@@ -221,7 +290,7 @@ def on_release(key):
         try:
             thread.start_new_thread( play_audio, (key,))
         except:
-            print("ERROR: Unable to create thread!!!")
+            print_error("Unable to create thread!!!")
         #play_audio(key)
     return True
 
