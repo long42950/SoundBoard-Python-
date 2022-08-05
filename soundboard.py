@@ -34,8 +34,8 @@ keybind_enabled = True
 ##General Config##
 CONFIG_FILE = 'KeyBind.config'
 mic_key = UNBOUND
-voice_modifier = '000'
-texting_key = UNBOUND
+voice_modifier = 0
+texting_key = [UNBOUND]
 
 
 ###Fail Safe###
@@ -49,6 +49,27 @@ def GC_completed():
     if texting_key == UNBOUND:
         print_warning("texting_key is unbounded in General_Configuration!")
     return True
+def GC_setter(attribute, value):
+    global mic_key, voice_modifier, texting_key
+    try:
+        match attribute:
+            case "mic_key":
+                if len(value) == 1:
+                    mic_key = value
+                    return True
+                else:
+                    print_error("Only 1 key for mic_key!")
+            case "voice_modifier":
+                voice_modifier = int(value)
+                return True
+            case "texting_key":
+                varis = value.split(',')
+                texting_key = varis
+                return True
+        return False
+    except:
+        print_error("Failed to read Attribute - {0}".format(attribute))
+        return False
 
 ###Audio Steup###
 
@@ -115,6 +136,7 @@ def parse_config(lines):
     phase = 0 # 0=Undefined / 1=GC / 2=Combination
     current_line = 0
     line_to_skip = 0
+    GC_succeed = True
     rtn = {
         "count" : 0,
         "combination" : [],
@@ -143,7 +165,7 @@ def parse_config(lines):
                                       .format(section))
                         continue
             if len(line.split("=")) > 1: #End of Line indicated by "="
-                print(current_line)
+                #print(current_line)
                 phase = 0
                 continue
             match phase:
@@ -153,12 +175,10 @@ def parse_config(lines):
                     if len(varis) == 4:
                         attribute = varis[1]
                         value = varis[2]
-                        try:
-                            exec(attribute + "='{0}'"
-                                 .format(parse_attribute(value)), globals())
-                        except:
-                            print_error("Failed to read Attribute - {0}"
-                                        .format(attribute))
+                        GC_succeed = GC_setter(
+                            parse_attribute(attribute),
+                            parse_attribute(value)) and GC_succeed
+                            
                 case 2:
                     if len(varis) == 4:
                         rtn["count"] += 1
@@ -176,7 +196,7 @@ def parse_config(lines):
             rtn["combination"] = []
             rtn["error_no"] = 525
             break
-    if not GC_completed():
+    if not GC_completed() or not GC_succeed:
         rtn["count"] = -1
         rtn["combination"] = []
         rtn["error_no"] = 502
@@ -228,7 +248,6 @@ def get_audio_directories():
 
 def play_audio(key):
     global keybind_enabled, folder_count, folders, wavs
-    voice_modifier = 200
     CHUNK = 0
     try:
         char = key.char
@@ -261,13 +280,13 @@ def play_audio(key):
                     output=True,
                     output_device_index=inputi)
     data1 = wf1.readframes(CHUNK)
-    keyboard_controller.press('k')
+    keyboard_controller.press(mic_key)
     #time.sleep(1)
     stream1.write(data1)
     stream1.stop_stream()
     stream1.close()
     time.sleep(1)
-    keyboard_controller.release('k')
+    keyboard_controller.release(mic_key)
     
 #p.terminate()
 
