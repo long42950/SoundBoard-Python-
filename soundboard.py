@@ -30,6 +30,7 @@ wavs = []
 UNBOUND = 'UNBOUND'
 keyboard_controller = Controller()
 keybind_enabled = True
+text_mode = False
 
 ##General Config##
 CONFIG_FILE = 'KeyBind.config'
@@ -64,6 +65,9 @@ def GC_setter(attribute, value):
                 return True
             case "texting_key":
                 varis = value.split(',')
+                for var in varis:
+                    if len(var) > 1:
+                        return False
                 texting_key = varis
                 return True
         return False
@@ -295,8 +299,34 @@ def play_audio(key):
 def init_keybind():
     print("KeyBind is now enabled")
 
+def start_texting(key):
+    if texting_key[0] == UNBOUND or text_mode:
+        return False
+    for tkey in texting_key:
+        try:
+            if tkey == key.char:
+                print("Enable text mode")
+                return True
+        except:
+            print("not character key")
+    return False
+
+def toggle_text_mode():
+    global text_mode
+    text_mode = not text_mode
+
+def exit_text_mode(key):
+    if not text_mode:
+        return False
+    if key == Key.esc or key == Key.enter:
+        print("Disable text mode")
+        return True
+    return False
+
 def on_release(key):
     global keybind_enabled
+    if start_texting(key) or exit_text_mode(key):
+        toggle_text_mode()
     if not keybind_enabled and key == Key.up:
         keybind_enabled = True
         print("KeyBind is now enabled")
@@ -307,7 +337,8 @@ def on_release(key):
             print("KeyBind is disabled, press up to enable KeyBind...")
             return True
         try:
-            thread.start_new_thread( play_audio, (key,))
+            if not text_mode:
+                thread.start_new_thread( play_audio, (key,))
         except:
             print_error("Unable to create thread!!!")
         #play_audio(key)
