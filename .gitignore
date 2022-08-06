@@ -1,6 +1,17 @@
+/affirmative
 /build
+/defuse
+/defuse_panic
 /negative
+/panic
 /random
+/reporting
+/search
+/victory
+.gitignore
 do_not_mess_with_me.wav
 setup.py
 theres_too_many_of_them.wav
+bot.jpeg
+ct.jpeg
+t.jpeg
