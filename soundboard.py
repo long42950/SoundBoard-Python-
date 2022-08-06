@@ -123,15 +123,9 @@ def is_wav(name):
         return True
     return False
 
-def parse_dir_name(string):
-    rtn = string.split('\t')[0]
-    #print(rtn)
+def parse_combination(string):
+    rtn = string.split()[0]
     return rtn
-
-def parse_keybind(string):
-    rtn = string.split()
-    #print(rtn)
-    return rtn[0]
 
 def parse_attribute(string):
     return string.replace(" ", "")
@@ -187,8 +181,8 @@ def parse_config(lines):
                     if len(varis) == 4:
                         rtn["count"] += 1
                         rtn["combination"].append(
-                            {"name" : parse_dir_name(varis[1]),
-                             "key" : parse_keybind(varis[2])}
+                            {"name" : parse_combination(varis[1]),
+                             "key" : parse_combination(varis[2])}
                         )
                     else:
                         print_error("Invalid line format ->{0}".format(line))
@@ -275,14 +269,15 @@ def play_audio(key):
                 CHUNK = wf1.getnframes()
                 break
 
-    if CHUNK == 0:
+    try:
+        stream1 = p.open(format=p.get_format_from_width(wf1.getsampwidth()),
+                        channels=wf1.getnchannels(),
+                        rate=wf1.getframerate()-voice_modifier,
+                        output=True,
+                        output_device_index=inputi)
+    except:
         print("Failed to locate .wav file!")
         return
-    stream1 = p.open(format=p.get_format_from_width(wf1.getsampwidth()),
-                    channels=wf1.getnchannels(),
-                    rate=wf1.getframerate()-voice_modifier,
-                    output=True,
-                    output_device_index=inputi)
     data1 = wf1.readframes(CHUNK)
     keyboard_controller.press(mic_key)
     #time.sleep(1)
@@ -308,7 +303,7 @@ def start_texting(key):
                 print("Enable text mode")
                 return True
         except:
-            print("not character key")
+            continue
     return False
 
 def toggle_text_mode():
@@ -337,7 +332,7 @@ def on_release(key):
             print("KeyBind is disabled, press up to enable KeyBind...")
             return True
         try:
-            if not text_mode:
+            if not text_mode and key.char != mic_key:
                 thread.start_new_thread( play_audio, (key,))
         except:
             print_error("Unable to create thread!!!")
