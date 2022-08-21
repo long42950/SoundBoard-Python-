@@ -34,6 +34,7 @@ text_mode = False
 
 ##General Config##
 CONFIG_FILE = 'KeyBind.config'
+FOLDER_PATH = 'music'
 mic_key = UNBOUND
 voice_modifier = 0
 texting_key = [UNBOUND]
@@ -75,7 +76,7 @@ def GC_setter(attribute, value):
         print_error("Failed to read Attribute - {0}".format(attribute))
         return False
 
-###Audio Steup###
+###Audio Setup###
 
 def init_audio():
     global p, outputi, inputi
@@ -201,9 +202,15 @@ def parse_config(lines):
         rtn["error_no"] = 502
     return rtn
 
+def show_configs(configs):
+    print('count: {0}'.format(configs["count"]))
+    print('error_no: {0}'.format(configs["error_no"]))
+    for combination in configs["combination"]:
+        print(combination)
+
 def get_audio_directories():
     global folder_count, folders, wavs
-    p = Path('.')
+    p = Path('./'+FOLDER_PATH)
     lines = []
     try:
         with open(CONFIG_FILE, 'r') as f:
@@ -213,7 +220,7 @@ def get_audio_directories():
         print_error("Cannot read config file")
         return False
     configs = parse_config(lines)
-    #print(configs)
+    #show_configs(configs)
     match configs["error_no"]:
         case 525:
             print_error("Your KeyBind.config might be corrupted.")
@@ -225,10 +232,11 @@ def get_audio_directories():
     #print(list(configs["combination"][0].keys()))
     for d in p.iterdir():
         dstring = str(d)
+        dir_name = dstring.split('\\')[1]
         if d.is_dir():
             for combo in configs["combination"]:
-                if combo["name"] == dstring:
-                    fp = Path(combo["name"])
+                if combo["name"] == dir_name:
+                    fp = Path('./{0}/{1}'.format(FOLDER_PATH, combo["name"]))
                     audio_list = []
                     for audio in fp.iterdir():
                         astring = str(audio).split('\\')[-1]
@@ -240,7 +248,7 @@ def get_audio_directories():
                     break
         elif is_wav(dstring):
             for combo in configs["combination"]:
-                if combo["name"] == dstring:
+                if combo["name"] == dir_name:
                     wavs.append(combo)
                     break
     return True
@@ -264,8 +272,8 @@ def play_audio(key):
                         folder["cooldown_no"] = randno
                         break
                 #print('{0}/{1}'.format(folder["name"], folder["audios"][randno]))
-                wf1 = wave.open('{0}/{1}'.format(
-                    folder["name"], folder["audios"][randno]))
+                wf1 = wave.open('{0}/{1}/{2}'.format(
+                    FOLDER_PATH, folder["name"], folder["audios"][randno]))
                 CHUNK = wf1.getnframes()
                 break  
     if CHUNK == 0:
