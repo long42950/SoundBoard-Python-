@@ -182,7 +182,8 @@ def parse_config(lines):
                         rtn["count"] += 1
                         rtn["combination"].append(
                             {"name" : parse_combination(varis[1]),
-                             "key" : parse_combination(varis[2])}
+                             "key" : parse_combination(varis[2]),
+                             "cooldown_no" : -1}
                         )
                     else:
                         print_error("Invalid line format ->{0}".format(line))
@@ -212,7 +213,7 @@ def get_audio_directories():
         print_error("Cannot read config file")
         return False
     configs = parse_config(lines)
-    print(configs)
+    #print(configs)
     match configs["error_no"]:
         case 525:
             print_error("Your KeyBind.config might be corrupted.")
@@ -256,7 +257,12 @@ def play_audio(key):
     if folder_count > 0:
         for folder in folders:
             if folder["key"] == char:
-                randno = random.randint(0,len(folder["audios"])-1)
+                length = len(folder["audios"])
+                while True:
+                    randno = random.randint(0,length-1)
+                    if folder["cooldown_no"] != randno or length == 1:
+                        folder["cooldown_no"] = randno
+                        break
                 #print('{0}/{1}'.format(folder["name"], folder["audios"][randno]))
                 wf1 = wave.open('{0}/{1}'.format(
                     folder["name"], folder["audios"][randno]))
