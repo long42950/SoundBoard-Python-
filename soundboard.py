@@ -31,6 +31,7 @@ UNBOUND = 'UNBOUND'
 keyboard_controller = Controller()
 keybind_enabled = True
 text_mode = False
+shift_pressed = False
 
 ##General Config##
 CONFIG_FILE = 'KeyBind.config'
@@ -256,6 +257,7 @@ def get_audio_directories():
 def play_audio(key):
     global keybind_enabled, folder_count, folders, wavs
     CHUNK = 0
+    audio_name = ""
     try:
         char = key.char
         char = char.lower()
@@ -271,6 +273,7 @@ def play_audio(key):
                     if folder["cooldown_no"] != randno or length == 1:
                         folder["cooldown_no"] = randno
                         break
+                audio_name = folder["audios"][randno]
                 #print('{0}/{1}'.format(folder["name"], folder["audios"][randno]))
                 wf1 = wave.open('{0}/{1}/{2}'.format(
                     FOLDER_PATH, folder["name"], folder["audios"][randno]))
@@ -279,7 +282,8 @@ def play_audio(key):
     if CHUNK == 0:
         for wav in wavs:
             if wav["key"] == char:
-                wf1 = wave.open(wav["name"])
+                audio_name = wav["name"]
+                wf1 = wave.open('{0}/{1}'.format(FOLDER_PATH, wav["name"]))
                 CHUNK = wf1.getnframes()
                 break
 
@@ -290,8 +294,9 @@ def play_audio(key):
                         output=True,
                         output_device_index=inputi)
     except:
-        print("Failed to locate .wav file!")
+        #print("Failed to locate .wav file!")
         return
+    print('Playing {0}'.format(audio_name))
     data1 = wf1.readframes(CHUNK)
     keyboard_controller.press(mic_key)
     #time.sleep(1)
@@ -307,7 +312,7 @@ def play_audio(key):
 
 def init_keybind():
     print("KeyBind is now enabled")
-
+    
 def start_texting(key):
     if texting_key[0] == UNBOUND or text_mode:
         return False
@@ -333,9 +338,12 @@ def exit_text_mode(key):
     return False
 
 def on_release(key):
-    global keybind_enabled
+    global keybind_enabled, shift_pressed
+    if key == Key.space and shift_pressed:
+        print(key)
     if start_texting(key) or exit_text_mode(key):
         toggle_text_mode()
+        return True
     if not keybind_enabled and key == Key.up:
         keybind_enabled = True
         print("KeyBind is now enabled")
@@ -351,7 +359,13 @@ def on_release(key):
         except:
             print_error("Unable to create thread!!!")
         #play_audio(key)
+    shift_pressed = False
     return True
+
+def on_press(key):
+    global shift_pressed
+    if key == Key.shift:
+        shift_pressed = True
 
 ###Main###
 if init_audio():
@@ -362,5 +376,6 @@ else:
     exit_on_failure()
 
 # Collect events until released
-with keyboard.Listener(on_release=on_release) as listener:
+with keyboard.Listener(on_release=on_release,
+                       on_press = on_press) as listener:
     listener.join()
