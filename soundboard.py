@@ -2,6 +2,7 @@ from pynput import keyboard
 from pynput.keyboard import KeyCode, Key, Controller
 from pathlib import Path
 from termcolor import colored, cprint
+from enum import Enum
 import pyaudio
 import wave
 import sys
@@ -23,8 +24,18 @@ isplaying = False
 folder_count = 0
 folders = []
 wavs = []
-    
-    
+current_audio = None
+current_audios = []
+class Action(Enum):
+    play = 'play'
+    resume = 'resume'
+    pause = 'pause'
+    stop = 'stop'
+class Status(Enum):
+    playing = 'playing'
+    paused = 'paused'
+    ended = 'ended'
+    unknown = 'unknown'
 
 ##KeyBind##
 UNBOUND = 'UNBOUND'
@@ -32,6 +43,10 @@ keyboard_controller = Controller()
 keybind_enabled = True
 text_mode = False
 shift_pressed = False
+class Mode(Enum):
+    bot = 'bot'
+    playback = 'playback'
+current_mode = Mode.bot
 
 ##General Config##
 CONFIG_FILE = 'KeyBind.config'
@@ -185,7 +200,10 @@ def parse_config(lines):
                         rtn["combination"].append(
                             {"name" : parse_combination(varis[1]),
                              "key" : parse_combination(varis[2]),
-                             "cooldown_no" : -1}
+                             "cooldown_no" : -1,
+                             "current_stream" : None,
+                             "current_audio" : -1,
+                             "status" : Status.unknown}
                         )
                     else:
                         print_error("Invalid line format ->{0}".format(line))
@@ -210,7 +228,7 @@ def show_configs(configs):
         print(combination)
 
 def get_audio_directories():
-    global folder_count, folders, wavs
+    global folder_count, folders, wavs, current_audios
     p = Path('./'+FOLDER_PATH)
     lines = []
     try:
@@ -246,18 +264,120 @@ def get_audio_directories():
                     combo["audios"] = audio_list
                     folders.append(combo)
                     folder_count += 1
+                    combo["current_audio"] = len(current_audios)
+                    current_audios.append(None)
                     break
         elif is_wav(dstring):
             for combo in configs["combination"]:
                 if combo["name"] == dir_name:
                     wavs.append(combo)
+                    combo["current_audio"] = len(current_audios)
+                    current_audios.append(None)
                     break
     return True
 
+def current_audios_debug():
+    return
+    print("=======================")
+    length = len(current_audios)
+    for i in range(length):
+        audio = current_audios[i]
+        print('{0}. {1}'.format(i, audio))
+    print("=======================")
+
+def normal_mode(wf, audio_name, chunk):
+    try:
+        stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                        channels=wf.getnchannels(),
+                        rate=wf.getframerate()-voice_modifier,
+                        output=True,
+                        output_device_index=inputi)
+    except:
+        #print("Failed to locate .wav file!")
+        return
+    print('Playing {0}'.format(audio_name))
+    data = wf.readframes(chunk)
+    keyboard_controller.press(mic_key)
+    stream.write(data)
+    stream.stop_stream()
+    stream.close()
+    time.sleep(1)
+    keyboard_controller.release(mic_key)
+
+def callback(in_data, frame_count, time_info, status):
+    ##-TODO-: Random crashes found
+    index = current_audio
+    data = current_audios[index].readframes(frame_count)
+    return (data, pyaudio.paContinue)
+
+def music_control(folder, action):
+    global current_audios
+    try:
+        match action:
+            case Action.play:
+                folder["current_stream"].start_stream()
+                folder["status"] = Status.playing
+            case Action.resume:
+                print("resuming")
+                folder["current_stream"].start_stream()
+                time.sleep(0.1)
+                folder["status"] = Status.playing
+            case Action.pause:
+                print("paused")
+                folder["status"] = Status.paused
+                folder["current_stream"].stop_stream()
+            case Action.stop:
+                print("Stream has ended")
+                folder["status"] = Status.unknown
+                folder["current_stream"].stop_stream()
+                folder["current_stream"].close()
+                folder["current_stream"] = None
+                current_audios[folder["current_audio"]] = None
+            case _:
+                print_error("Invalid action!")
+    except:
+        print_error("Thread corrupted, resetting folder status")
+        folder["status"] = Status.unknown
+        folder["current_stream"] = None
+        current_audios[folder["current_audio"]] = None
+
+def playback_mode(wf, audio_name, chunk, folder):
+    ##-TODO-: Instead of creating new thread, find a way to edit existing
+    ##        thread to optimise memory usage when pausing music
+    global current_audio, current_audios
+    try:
+        stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                        channels=wf.getnchannels(),
+                        rate=wf.getframerate()-voice_modifier,
+                        output=True,
+                        output_device_index=inputi,
+                        stream_callback=callback)
+    except:
+        return
+    print('Playing {0}'.format(audio_name))
+    current_audios[folder["current_audio"]] = wf
+    current_audios_debug()
+    current_audio = folder["current_audio"]
+    folder["current_stream"] = stream
+    #thread.start_new_thread(music_control, (folder, Action.play,))
+    music_control(folder, Action.play)
+    while folder["current_stream"].is_active() or folder["status"] == Status.paused:
+        #print((stream.is_active()) != (folder["status"] == Status.paused))
+        #print(folder["current_stream"].is_active())
+        time.sleep(0.1)
+    #print("last known status {0}".format(folder["status"]))
+    #print((stream.is_active()) != (folder["status"] == Status.paused))
+    print(stream.is_active())
+    print(folder["status"] == Status.paused)
+    music_control(folder, Action.stop)
+
 def play_audio(key):
-    global keybind_enabled, folder_count, folders, wavs
+    global keybind_enabled, folder_count, folders, wavs, current_mode
+    global current_audio
     CHUNK = 0
     audio_name = ""
+    selected_folder = None
+    current_audios_debug()
     try:
         char = key.char
         char = char.lower()
@@ -267,6 +387,22 @@ def play_audio(key):
     if folder_count > 0:
         for folder in folders:
             if folder["key"] == char:
+                selected_folder = folder
+                if selected_folder["current_audio"] == -1:
+                    print_error("Folder current_audio Index is corrupted!!!")
+                    return
+                if True or current_mode == Mode.playback:
+                    match selected_folder["status"]:
+                        case Status.playing:
+                            current_audio = selected_folder["current_audio"]
+                            current_audios_debug()
+                            music_control(selected_folder, Action.pause)
+                            return
+                        case Status.paused:
+                            current_audio = selected_folder["current_audio"]
+                            current_audios_debug()
+                            music_control(selected_folder, Action.resume)
+                            return
                 length = len(folder["audios"])
                 while True:
                     randno = random.randint(0,length-1)
@@ -282,36 +418,79 @@ def play_audio(key):
     if CHUNK == 0:
         for wav in wavs:
             if wav["key"] == char:
+                selected_folder = wav
+                if selected_folder["current_audio"] == -1:
+                    print_error("Folder current_audio Index is corrupted!!!")
+                    return
+                if True or current_mode == Mode.playback:
+                    match selected_folder["status"]:
+                        case Status.playing:
+                            current_audio = selected_folder["current_audio"]
+                            current_audios_debug()
+                            music_control(selected_folder, Action.pause)
+                            return
+                        case Status.paused:
+                            current_audio = selected_folder["current_audio"]
+                            current_audios_debug()
+                            music_control(selected_folder, Action.resume)
+                            return
                 audio_name = wav["name"]
                 wf1 = wave.open('{0}/{1}'.format(FOLDER_PATH, wav["name"]))
                 CHUNK = wf1.getnframes()
                 break
-
-    try:
-        stream1 = p.open(format=p.get_format_from_width(wf1.getsampwidth()),
-                        channels=wf1.getnchannels(),
-                        rate=wf1.getframerate()-voice_modifier,
-                        output=True,
-                        output_device_index=inputi)
-    except:
-        #print("Failed to locate .wav file!")
-        return
-    print('Playing {0}'.format(audio_name))
-    data1 = wf1.readframes(CHUNK)
-    keyboard_controller.press(mic_key)
-    #time.sleep(1)
-    stream1.write(data1)
-    stream1.stop_stream()
-    stream1.close()
-    time.sleep(1)
-    keyboard_controller.release(mic_key)
+    if True:
+        normal_mode(wf1, audio_name, CHUNK)
+    else:
+        playback_mode(wf1, audio_name, CHUNK, selected_folder)
     
 #p.terminate()
+
+def reset_status():
+    global folders, wavs
+    for folder in folders:
+        folder["status"] = Status.unknown
+    for wav in wavs:
+        wav["status"] = Status.unknwon
 
 ###KeyBind###
 
 def init_keybind():
     print("KeyBind is now enabled")
+
+def is_forbidden_key(key):
+    match key:
+        case Key.space:
+            return True
+        case Key.backspace:
+            return True
+        case Key.enter:
+            return True
+        case Key.ctrl_l:
+            return True
+        case Key.ctrl_r:
+            return True
+        case Key.esc:
+            return True
+        case Key.shift_l:
+            return True
+        case Key.shift_r:
+            return True
+        case Key.tab:
+            return True
+        case Key.caps_lock:
+            return True
+        case _:
+            return False
+
+def switch_mode():
+    global current_mode
+    if current_mode == Mode.bot:
+        current_mode = Mode.playback
+    else:
+        current_mode = Mode.bot
+    print_warning("You are now in {0} Mode".format(current_mode.value))
+    reset_status()
+    shift_pressed = False
     
 def start_texting(key):
     if texting_key[0] == UNBOUND or text_mode:
@@ -340,7 +519,9 @@ def exit_text_mode(key):
 def on_release(key):
     global keybind_enabled, shift_pressed
     if key == Key.space and shift_pressed:
-        print(key)
+        switch_mode()
+        return True
+    shift_pressed = False
     if start_texting(key) or exit_text_mode(key):
         toggle_text_mode()
         return True
@@ -349,6 +530,8 @@ def on_release(key):
         print("KeyBind is now enabled")
         return True
     elif keybind_enabled:
+        if is_forbidden_key(key):
+            return True
         if key == Key.down:
             keybind_enabled = False
             print("KeyBind is disabled, press up to enable KeyBind...")
@@ -359,7 +542,6 @@ def on_release(key):
         except:
             print_error("Unable to create thread!!!")
         #play_audio(key)
-    shift_pressed = False
     return True
 
 def on_press(key):
